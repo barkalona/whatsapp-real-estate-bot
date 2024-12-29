@@ -82,6 +82,12 @@ class ConversationContext {
         this.userContexts.set(userId, context);
     }
 
+    suggestNextStep(userId) {
+    // Implement logic to determine and return the next step
+    // For example, you might return a string indicating the next action
+    return 'nextStep';
+}
+    
     addToHistory(userId, message, isUser = true) {
         const context = this.getUserContext(userId);
         context.interactionHistory.push({
