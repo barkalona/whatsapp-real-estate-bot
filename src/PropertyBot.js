@@ -67,3 +67,228 @@ Villa Three:
             ]
         };
     }
+
+    async logDebug(message, data) {
+        console.log(`[DEBUG] ${message}:`, JSON.stringify(data, null, 2));
+    }
+
+    detectLanguage(message) {
+        const arabicPattern = /[\u0600-\u06FF]/;
+        return arabicPattern.test(message) ? 'arabic' : 'english';
+    }
+
+    async sendLayouts(category = 'all', language, sender) {
+        try {
+            const context = this.conversationContext.getUserContext(sender);
+            const layoutImages = this.photos.layouts.map(layout => `${this.baseUrl}/images/${layout}`);
+            
+            const message = language === 'arabic' 
+                ? 'هذه مخططات الطوابق للفلل:'
+                : 'Here are the floor layouts for the villas:';
+
+            return {
+                text: message,
+                media: layoutImages[0] // For now, sending first layout
+            };
+        } catch (error) {
+            console.error('Error sending layouts:', error);
+            return {
+                text: language === 'arabic'
+                    ? 'عذراً، حدث خطأ في إرسال المخططات. هل يمكنك المحاولة مرة أخرى؟'
+                    : 'Sorry, there was an error sending the layouts. Could you try again?'
+            };
+        }
+    }
+
+    async sendPhotos(category = 'general', language, sender) {
+        try {
+            const context = this.conversationContext.getUserContext(sender);
+            let photos;
+            
+            switch(category) {
+                case 'interior':
+                    photos = this.photos.interior;
+                    break;
+                case 'layouts':
+                    photos = this.photos.layouts;
+                    break;
+                default:
+                    photos = this.photos.general;
+            }
+
+            const photoUrl = `${this.baseUrl}/images/${photos[0]}`; // For now, sending first photo
+            
+            const message = language === 'arabic'
+                ? 'هذه صور الفلل:'
+                : 'Here are photos of the villas:';
+
+            return {
+                text: message,
+                media: photoUrl
+            };
+        } catch (error) {
+            console.error('Error sending photos:', error);
+            return {
+                text: language === 'arabic'
+                    ? 'عذراً، حدث خطأ في إرسال الصور. هل يمكنك المحاولة مرة أخرى؟'
+                    : 'Sorry, there was an error sending the photos. Could you try again?'
+            };
+        }
+    }
+
+    async handleMessage(message, sender) {
+        let language = 'english'; // Default language
+        try {
+            await this.logDebug('Received message', { message, sender });
+            
+            // Get or initialize user context
+            const context = this.conversationContext.getUserContext(sender);
+            
+            // Detect language if not set
+            if (!context.preferences.language) {
+                context.preferences.language = this.detectLanguage(message);
+            }
+            language = context.preferences.language;
+            
+            // Add message to conversation history
+            this.conversationContext.addToHistory(sender, message, true);
+            
+            // Check for specific commands or keywords
+            const lowerMessage = message.toLowerCase();
+            
+            // Handle layout requests
+            if (lowerMessage.includes('layout') || lowerMessage.includes('floor') || 
+                lowerMessage.includes('مخطط') || lowerMessage.includes('طابق')) {
+                return await this.sendLayouts(null, language, sender);
+            }
+            
+            // Handle photo requests
+            if (lowerMessage.includes('photo') || lowerMessage.includes('picture') || 
+                lowerMessage.includes('صور') || lowerMessage.includes('صورة')) {
+                return await this.sendPhotos(null, language, sender);
+            }
+            
+            // Handle contact information
+            if (ContactHandler.isContactInfo(message)) {
+                const contactInfo = ContactHandler.extractContactInfo(message);
+                if (contactInfo.name || contactInfo.phone) {
+                    // Store contact info in context
+                    this.conversationContext.updateContext(sender, {
+                        preferences: {
+                            ...context.preferences,
+                            contactName: contactInfo.name,
+                            contactPhone: contactInfo.phone
+                        }
+                    });
+                }
+            }
+            
+            // Use ChatGPT for response
+            const response = await this.useChatGPT(message, sender);
+            
+            // Add bot's response to conversation history
+            this.conversationContext.addToHistory(sender, response, false);
+            
+            // Get next recommendation if price negotiation is not complete
+            const suggestion = !context.priceNegotiation.completed ? 
+                             this.conversationContext.suggestNextStep(sender, language) : 
+                             null;
+            
+            // Combine response with suggestion if available
+            const finalResponse = suggestion ? 
+                `${response}\n\n${suggestion}` : 
+                response;
+                
+            return { text: finalResponse };
+            
+        } catch (error) {
+            console.error('Error in handleMessage:', error);
+            return {
+                text: language === 'arabic'
+                    ? 'عذراً، حدث خطأ في معالجة رسالتك. هل يمكنك المحاولة مرة أخرى؟'
+                    : 'Sorry, there was an error processing your message. Could you try again?'
+            };
+        }
+    }
+
+    async useChatGPT(message, sender) {
+        try {
+            const context = this.conversationContext.getUserContext(sender);
+            const language = context.preferences.language;
+
+            // Check for price agreement messages
+            if (this.negotiationState.isNegotiationComplete && !context.priceNegotiation.completed) {
+                this.conversationContext.updatePriceNegotiation(
+                    sender, 
+                    'completed', 
+                    this.negotiationState.agreedPrice
+                );
+            }
+
+            // Extract numbers for price negotiation
+            const numbers = message.match(/\d+/g);
+            const possibleOffer = numbers ? parseInt(numbers.join('')) : null;
+
+            // Handle price negotiation if not completed
+            if (possibleOffer && !context.priceNegotiation.completed) {
+                const result = this.negotiationState.handleOffer(possibleOffer);
+                if (result.complete) {
+                    this.conversationContext.updatePriceNegotiation(
+                        sender, 
+                        'completed', 
+                        result.price
+                    );
+                }
+            }
+
+            // Prepare ChatGPT prompt
+            const prompt = `
+You are a real estate agent in Oman, communicating in ${language === 'arabic' ? 'Omani Arabic dialect' : 'English'}.
+You are selling a luxurious three-villa complex in Al Ansab, Muscat.
+
+Current state:
+${context.priceNegotiation.completed 
+    ? `- Price has been agreed at OMR ${context.priceNegotiation.agreedPrice}
+- Focus on viewing arrangements and next steps` 
+    : `- Current asking price: OMR ${this.negotiationState.currentPrice}
+- Previous offer: ${this.negotiationState.lastOffer ? `OMR ${this.negotiationState.lastOffer}` : 'None'}`}
+
+Property Knowledge:
+${this.knowledgeBase.general}
+
+Guidelines:
+- ${context.priceNegotiation.completed ? 'Price is already agreed, focus on next steps' : 'Maintain professional negotiation stance'}
+- Be direct but courteous
+- Focus on property value and features
+- If client asks about one villa, explain benefits of whole complex
+- Property age: Built 2011, recently renovated
+- For owner contact, ask for client details
+- Property is for sale only, not for rent
+
+Previous messages:
+${context.interactionHistory.slice(-3).map(h => `${h.isUser ? 'Client' : 'Agent'}: ${h.message}`).join('\n')}
+
+User's message: "${message}"
+
+Respond naturally while following the guidelines.
+`;
+
+            const response = await this.openai.chat.completions.create({
+                model: 'gpt-3.5-turbo',
+                messages: [{ role: 'user', content: prompt }],
+                max_tokens: 200,
+                temperature: 0.7,
+            });
+
+            return response.choices[0].message.content.trim();
+
+        } catch (error) {
+            console.error('Error communicating with ChatGPT:', error);
+            return language === 'arabic' 
+                ? 'عذراً، حدث خطأ في معالجة طلبك. هل يمكنك المحاولة مرة أخرى؟'
+                : 'Sorry, I could not process your request at the moment. Could you try again?';
+        }
+    }
+}
+
+module.exports = PropertyBot;
