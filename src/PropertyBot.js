@@ -4,12 +4,11 @@ const ConversationContext = require('./ConversationContext');
 const ContactHandler = require('./ContactHandler');
 
 class PropertyBot {
-    constructor() {
+    constructor(twilioClient, openaiClient) {
+        this.client = twilioClient;
+        this.openai = openaiClient;
         this.negotiationState = new NegotiationState();
         this.conversationContext = new ConversationContext();
-        
-        // OpenAI client setup
-        this.openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
         
         // Base URL setup
         const ngrokUrl = process.env.NGROK_URL;
@@ -47,6 +46,26 @@ Villa Three:
             },
             location: 'https://maps.app.goo.gl/SC6Ko1GifWqkSE6W7'
         };
+
+        // Available photos
+        this.photos = {
+            general: [
+                'exterior_front.jpg',
+                'aerial_view.jpg',
+                'entrance_gate.jpg'
+            ],
+            interior: [
+                'living_room.jpg',
+                'kitchen.jpg',
+                'master_bedroom.jpg',
+                'bathroom.jpg'
+            ],
+            layouts: [
+                'ground_floor.jpg',
+                'first_floor.jpg',
+                'penthouse.jpg'
+            ]
+        };
     }
 
     async logDebug(message, data) {
@@ -56,6 +75,65 @@ Villa Three:
     detectLanguage(message) {
         const arabicPattern = /[\u0600-\u06FF]/;
         return arabicPattern.test(message) ? 'arabic' : 'english';
+    }
+
+    async sendLayouts(category = 'all', language, sender) {
+        try {
+            const context = this.conversationContext.getUserContext(sender);
+            const layoutImages = this.photos.layouts.map(layout => `${this.baseUrl}/images/${layout}`);
+            
+            const message = language === 'arabic' 
+                ? 'هذه مخططات الطوابق للفلل:'
+                : 'Here are the floor layouts for the villas:';
+
+            return {
+                text: message,
+                media: layoutImages[0] // For now, sending first layout. Could be modified to send multiple
+            };
+        } catch (error) {
+            console.error('Error sending layouts:', error);
+            return {
+                text: language === 'arabic'
+                    ? 'عذراً، حدث خطأ في إرسال المخططات. هل يمكنك المحاولة مرة أخرى؟'
+                    : 'Sorry, there was an error sending the layouts. Could you try again?'
+            };
+        }
+    }
+
+    async sendPhotos(category = 'general', language, sender) {
+        try {
+            const context = this.conversationContext.getUserContext(sender);
+            let photos;
+            
+            switch(category) {
+                case 'interior':
+                    photos = this.photos.interior;
+                    break;
+                case 'layouts':
+                    photos = this.photos.layouts;
+                    break;
+                default:
+                    photos = this.photos.general;
+            }
+
+            const photoUrl = `${this.baseUrl}/images/${photos[0]}`; // For now, sending first photo
+            
+            const message = language === 'arabic'
+                ? 'هذه صور الفلل:'
+                : 'Here are photos of the villas:';
+
+            return {
+                text: message,
+                media: photoUrl
+            };
+        } catch (error) {
+            console.error('Error sending photos:', error);
+            return {
+                text: language === 'arabic'
+                    ? 'عذراً، حدث خطأ في إرسال الصور. هل يمكنك المحاولة مرة أخرى؟'
+                    : 'Sorry, there was an error sending the photos. Could you try again?'
+            };
+        }
     }
 
     async handleMessage(message, sender) {
