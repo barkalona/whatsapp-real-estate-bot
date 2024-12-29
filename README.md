@@ -12,31 +12,31 @@ A WhatsApp chatbot for real estate property inquiries and price negotiations.
 ## Setup
 
 1. Clone the repository:
-```bash
+\`\`\`bash
 git clone https://github.com/barkalona/whatsapp-real-estate-bot.git
 cd whatsapp-real-estate-bot
-```
+\`\`\`
 
 2. Install dependencies:
-```bash
+\`\`\`bash
 npm install
-```
+\`\`\`
 
 3. Configure environment variables:
-- Copy `.env.example` to `.env`
+- Copy \`.env.example\` to \`.env\`
 - Fill in your WhatsApp API credentials
 
 4. Start the bot:
-```bash
+\`\`\`bash
 npm start
-```
+\`\`\`
 
 ## Project Structure
 
-- `src/PropertyBot.js` - Main bot logic
-- `src/NegotiationState.js` - Price negotiation handling
-- `src/ConversationContext.js` - Conversation state management
-- `src/ContactHandler.js` - User contact management
+- \`src/PropertyBot.js\` - Main bot logic
+- \`src/NegotiationState.js\` - Price negotiation handling
+- \`src/ConversationContext.js\` - Conversation state management
+- \`src/ContactHandler.js\` - User contact management
 
 ## Configuration
 
