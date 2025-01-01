@@ -4,9 +4,13 @@ const ConversationContext = require('./ConversationContext');
 const ContactHandler = require('./ContactHandler');
 
 class PropertyBot {
-    constructor(twilioClient, openaiClient) {
-        this.client = twilioClient;
+    constructor({ twilioClient, openaiClient, logger }) {
+        if (!twilioClient || !openaiClient) {
+            throw new Error('Required clients not provided');
+        }
+        this.twilioClient = twilioClient;
         this.openai = openaiClient;
+        this.logger = logger;
         this.negotiationState = new NegotiationState();
         this.conversationContext = new ConversationContext();
         
@@ -77,62 +81,60 @@ Villa Three:
         return arabicPattern.test(message) ? 'arabic' : 'english';
     }
 
-    async sendLayouts(category = 'all', language, sender) {
+    async sendLayouts(phoneNumber, language = 'en') {
         try {
-            const context = this.conversationContext.getUserContext(sender);
-            const layoutImages = this.photos.layouts.map(layout => `${this.baseUrl}/images/${layout}`);
+            this.logger.logDebug(language === 'ar' ? 'إرسال المخططات' : 'Sending floor plans');
             
-            const message = language === 'arabic' 
-                ? 'هذه مخططات الطوابق للفلل:'
-                : 'Here are the floor layouts for the villas:';
-
-            return {
-                text: message,
-                media: layoutImages[0] // For now, sending first layout
-            };
+            if (!this.photos.layouts || this.photos.layouts.length === 0) {
+                this.logger.logDebug('No floor plans available');
+                await this.twilioClient.messages.create({
+                    to: phoneNumber,
+                    from: process.env.TWILIO_PHONE_NUMBER,
+                    body: language === 'ar' ? 'عذراً، لا تتوفر مخططات حالياً' : 'Sorry, no floor plans are currently available'
+                });
+                return;
+            }
+    
+            for (const layout of this.photos.layouts) {
+                await this.twilioClient.messages.create({
+                    to: phoneNumber,
+                    from: process.env.TWILIO_PHONE_NUMBER,
+                    mediaUrl: [`${this.baseUrl}/images/${layout}`]
+                });
+            }
         } catch (error) {
             console.error('Error sending layouts:', error);
-            return {
-                text: language === 'arabic'
-                    ? 'عذراً، حدث خطأ في إرسال المخططات. هل يمكنك المحاولة مرة أخرى؟'
-                    : 'Sorry, there was an error sending the layouts. Could you try again?'
-            };
+            this.logger.logError('Error sending layouts: ' + error.message);
         }
     }
-
-    async sendPhotos(category = 'general', language, sender) {
+    
+    async sendPhotos(phoneNumber, language = 'en') {
         try {
-            const context = this.conversationContext.getUserContext(sender);
-            let photos;
+            this.logger.logDebug(language === 'ar' ? 'إرسال الصور إلى المستخدم' : 'Sending photos to user');
             
-            switch(category) {
-                case 'interior':
-                    photos = this.photos.interior;
-                    break;
-                case 'layouts':
-                    photos = this.photos.layouts;
-                    break;
-                default:
-                    photos = this.photos.general;
+            const messages = [];
+            
+            if (this.photos.general) {
+                for (const photo of this.photos.general) {
+                    await this.twilioClient.messages.create({
+                        to: phoneNumber,
+                        from: process.env.TWILIO_PHONE_NUMBER,
+                        mediaUrl: [`${this.baseUrl}/images/${photo}`]
+                    });
+                }
             }
-
-            const photoUrl = `${this.baseUrl}/images/${photos[0]}`; // For now, sending first photo
             
-            const message = language === 'arabic'
-                ? 'هذه صور الفلل:'
-                : 'Here are photos of the villas:';
-
-            return {
-                text: message,
-                media: photoUrl
-            };
+            if (this.photos.interior) {
+                for (const photo of this.photos.interior) {
+                    await this.twilioClient.messages.create({
+                        to: phoneNumber,
+                        from: process.env.TWILIO_PHONE_NUMBER,
+                        mediaUrl: [`${this.baseUrl}/images/${photo}`]
+                    });
+                }
+            }
         } catch (error) {
-            console.error('Error sending photos:', error);
-            return {
-                text: language === 'arabic'
-                    ? 'عذراً، حدث خطأ في إرسال الصور. هل يمكنك المحاولة مرة أخرى؟'
-                    : 'Sorry, there was an error sending the photos. Could you try again?'
-            };
+            this.logger.logError('Error sending photos: ' + error.message);
         }
     }
 
