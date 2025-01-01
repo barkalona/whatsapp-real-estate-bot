@@ -1,101 +1,90 @@
 class ConversationContext {
     constructor() {
-        this.userContexts = new Map();
-        this.sessionTimeout = 30 * 60 * 1000; // 30 minutes
+        this.contexts = new Map();
     }
 
     getUserContext(userId) {
-        const context = this.userContexts.get(userId);
-        if (!context) return this.initializeUserContext(userId);
-    
-        const now = new Date();
-        if (now - context.lastInteraction > this.sessionTimeout) {
-            const { preferences } = context;
-            const newContext = this.initializeUserContext(userId);
-            newContext.preferences = preferences;
-            return newContext;
-        }
-    
-        return context;
-    }
-
-    initializeUserContext(userId) {
-        if (!this.userContexts.has(userId)) {
-            this.userContexts.set(userId, {
+        if (!this.contexts.has(userId)) {
+            this.contexts.set(userId, {
                 preferences: {
                     language: null,
-                    interestedInVilla: null,
-                    priceRange: null,
-                    preferredContactTime: null
+                    contactName: null,
+                    contactPhone: null
                 },
-                lastInteraction: new Date(),
-                conversationState: 'initial',
                 interactionHistory: [],
-                lastQuestion: null,
-                viewedLayouts: new Set(),
-                viewedPhotos: false,
-                lastMessageType: null,
                 priceNegotiation: {
-                    discussed: false,
                     completed: false,
-                    agreedPrice: null
-                }
+                    agreedPrice: null,
+                    lastOffer: null
+                },
+                lastInteraction: Date.now()
             });
         }
-        return this.userContexts.get(userId);
+        return this.contexts.get(userId);
+    }
+
+    addToHistory(userId, message, isUser) {
+        const context = this.getUserContext(userId);
+        context.interactionHistory.push({
+            timestamp: Date.now(),
+            message,
+            isUser
+        });
+        
+        // Keep only last 10 messages for memory efficiency
+        if (context.interactionHistory.length > 10) {
+            context.interactionHistory.shift();
+        }
     }
 
     updateContext(userId, updates) {
         const context = this.getUserContext(userId);
-        if (context) {
-            Object.assign(context, {
-                ...updates,
-                lastInteraction: new Date()
-            });
-            this.userContexts.set(userId, context);
-        }
+        Object.assign(context, updates);
     }
 
-    getNextRecommendation(userId) {
-        const context = this.getUserContext(userId);
-        if (context.lastMessageType === 'layouts') {
-            return null;
-        }
-        if (!context.viewedLayouts.size) {
-            return 'layouts';
-        } else if (!context.viewedPhotos) {
-            return 'photos';
-        } else if (!context.priceNegotiation.discussed && !context.priceNegotiation.completed) {
-            return 'price';
-        }
-        return null;
-    }
-
-    updatePriceNegotiation(userId, status, price = null) {
+    updatePriceNegotiation(userId, status, price) {
         const context = this.getUserContext(userId);
         context.priceNegotiation = {
             ...context.priceNegotiation,
-            discussed: true,
             completed: status === 'completed',
-            agreedPrice: price
+            agreedPrice: price || context.priceNegotiation.agreedPrice,
+            lastOffer: price || context.priceNegotiation.lastOffer
         };
-        this.userContexts.set(userId, context);
     }
 
-    suggestNextStep(userId) {
-    // Implement logic to determine and return the next step
-    // For example, you might return a string indicating the next action
-    return 'nextStep';
-}
-    
-    addToHistory(userId, message, isUser = true) {
+    suggestNextStep(userId, language) {
         const context = this.getUserContext(userId);
-        context.interactionHistory.push({
-            timestamp: new Date(),
-            message,
-            isUser
-        });
-        context.lastInteraction = new Date();
+        const { priceNegotiation, preferences } = context;
+
+        if (!preferences.contactName && !preferences.contactPhone) {
+            return language === 'arabic' 
+                ? 'لتسهيل التواصل، هل يمكنك مشاركة اسمك ورقم هاتفك؟'
+                : 'To facilitate communication, could you share your name and contact number?';
+        }
+
+        if (!priceNegotiation.lastOffer) {
+            return language === 'arabic'
+                ? 'هل لديك سعر معين في ذهنك للعقار؟'
+                : 'Do you have a specific price in mind for the property?';
+        }
+
+        if (!priceNegotiation.completed) {
+            return language === 'arabic'
+                ? 'هل ترغب في مناقشة السعر أكثر أو ترتيب موعد لمعاينة العقار؟'
+                : 'Would you like to discuss the price further or arrange a viewing?';
+        }
+
+        return null;
+    }
+
+    // Clean up old contexts (older than 24 hours)
+    cleanupOldContexts() {
+        const oneDayAgo = Date.now() - (24 * 60 * 60 * 1000);
+        for (const [userId, context] of this.contexts.entries()) {
+            if (context.lastInteraction < oneDayAgo) {
+                this.contexts.delete(userId);
+            }
+        }
     }
 }
 

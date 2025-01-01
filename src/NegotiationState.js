@@ -1,59 +1,95 @@
 class NegotiationState {
-    constructor() {
-        this.currentPrice = 550000;
-        this.minPrice = 500000;
-        this.increment = 10000;
-        this.negotiationAttempts = 0;
+    constructor(initialPrice = 550000) {
+        this.initialPrice = initialPrice;
+        this.currentPrice = initialPrice;
         this.lastOffer = null;
+        this.offerHistory = [];
+        this.minAcceptablePrice = initialPrice * 0.9; // 10% below asking price
+        this.maxNegotiationRounds = 5;
         this.isNegotiationComplete = false;
         this.agreedPrice = null;
     }
 
-    handleOffer(offer) {
-        this.lastOffer = offer;
-        
-        if (offer >= this.currentPrice) {
+    handleOffer(offerAmount) {
+        // Record the offer
+        this.lastOffer = offerAmount;
+        this.offerHistory.push({
+            amount: offerAmount,
+            timestamp: Date.now()
+        });
+
+        // Check if offer is acceptable
+        if (offerAmount >= this.minAcceptablePrice) {
             this.isNegotiationComplete = true;
-            this.agreedPrice = offer;
+            this.agreedPrice = offerAmount;
             return {
-                type: 'accept',
-                price: offer,
-                complete: true
+                complete: true,
+                accepted: true,
+                price: offerAmount,
+                message: 'Offer accepted'
             };
         }
 
-        if (offer < this.minPrice) {
-            this.negotiationAttempts++;
-            if (this.negotiationAttempts >= 3) {
-                return {
-                    type: 'refer_to_owner',
-                    price: this.currentPrice
-                };
-            }
+        // Calculate counter offer if needed
+        if (this.offerHistory.length >= this.maxNegotiationRounds) {
             return {
-                type: 'counter',
-                price: this.currentPrice - this.increment
+                complete: false,
+                accepted: false,
+                suggestedCounter: this.minAcceptablePrice,
+                message: 'Final counter offer'
             };
         }
 
-        if (this.currentPrice - this.increment >= this.minPrice) {
-            this.currentPrice -= this.increment;
-            return {
-                type: 'counter',
-                price: this.currentPrice
-            };
-        }
+        // Calculate a counter offer
+        const counterOffer = this.calculateCounterOffer(offerAmount);
+        this.currentPrice = counterOffer;
 
         return {
-            type: 'final_offer',
-            price: this.minPrice
+            complete: false,
+            accepted: false,
+            suggestedCounter: counterOffer,
+            message: 'Counter offer suggested'
+        };
+    }
+
+    calculateCounterOffer(offerAmount) {
+        // Get percentage difference from asking price
+        const percentageDiff = (this.initialPrice - offerAmount) / this.initialPrice;
+        
+        // If offer is very low (more than 15% below asking)
+        if (percentageDiff > 0.15) {
+            return Math.round(this.initialPrice * 0.95); // Counter with 5% below asking
+        }
+        
+        // If offer is low (10-15% below asking)
+        if (percentageDiff > 0.10) {
+            return Math.round(this.initialPrice * 0.97); // Counter with 3% below asking
+        }
+        
+        // If offer is close (5-10% below asking)
+        if (percentageDiff > 0.05) {
+            return Math.round(this.initialPrice * 0.98); // Counter with 2% below asking
+        }
+        
+        // If offer is very close (less than 5% below asking)
+        return Math.round(this.initialPrice * 0.99); // Counter with 1% below asking
+    }
+
+    getStatus() {
+        return {
+            initialPrice: this.initialPrice,
+            currentPrice: this.currentPrice,
+            lastOffer: this.lastOffer,
+            offerCount: this.offerHistory.length,
+            isComplete: this.isNegotiationComplete,
+            agreedPrice: this.agreedPrice
         };
     }
 
     reset() {
-        this.currentPrice = 550000;
-        this.negotiationAttempts = 0;
+        this.currentPrice = this.initialPrice;
         this.lastOffer = null;
+        this.offerHistory = [];
         this.isNegotiationComplete = false;
         this.agreedPrice = null;
     }
